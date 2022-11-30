@@ -1,47 +1,72 @@
 #include <iostream>
 #include <simlib.h>
 
-Facility Linka("Obsluzna linka");
+#define NUM_OF_ROCKET_LAUNCHERS 2
+
+Facility Linka[NUM_OF_ROCKET_LAUNCHERS];
 Facility LinkaVojaku("Obslužná linka vojáků");
 Stat dobaObsluhy("Doba obsluhy na lince");
 Histogram dobaVSystemu("Celkova doba v systemu", 0, 40, 20);
 Queue cekani;
 
-extern int bezCekani = 0;
-extern int sCekanim = 0;
+// Vojáci by po nějaké době mohli odcházet a jejich počet by se postupně snižoval 
+
+int bezCekani = 0;
+int sCekanim = 0;
 
 class Palba: public Process
 {
     void Behavior()
     {
         double tvstup = Time;
-        double obsluha;
-        int raketomet = 0;
+        double nabijeni;
+        double palba;
 
         opak:
 
-        if (!Linka.Busy())
-        {
-            bezCekani++;
-            int raketomet = 1;
+        int raketomet = -1;
 
-            Seize(Linka);
-            obsluha = Exponential(10);
-            std::cout << "Raketomet byl zabrán" << std::endl;
-            //obsluha = 0;
-            Wait(obsluha);
-            dobaObsluhy(obsluha);
-            // Tady bude chování v rámci zabrání linky
-            Release(Linka);
-            dobaVSystemu(Time - tvstup);
+        // Kontrola, zda jsou raketomety volné
+        for (int i = 0; i < NUM_OF_ROCKET_LAUNCHERS; i++)
+        {
+            if (!Linka[i].Busy())
+            {
+                raketomet = i;
+                bezCekani++;
+                break;
+            }
         }
-        else
+        
+        // Pokud nebyl žádný raketomet volný, požadavek se vloží do fronty
+        if (raketomet == -1)
         {
             sCekanim++;
             cekani.Insert(this);
             Passivate();
+            Print("Požadavek byl zařazen do fronty\n");
             goto opak;
         }
+        else
+        {
+            Seize(Linka[raketomet]);
+            Print("Raketomet %d byl zabrán\n", raketomet + 1);
+        }
+        
+        // Nabíjení
+        nabijeni = Exponential(10);
+        Wait(nabijeni);
+        dobaObsluhy(nabijeni);
+        Print("Raketomet %d byl nabit\n", raketomet + 1);
+
+        // Palba
+        palba = Exponential(10);
+        Wait(palba);
+        Print("Raketomet %d vypálil\n", raketomet + 1);
+
+        // Tady bude chování v rámci zabrání linky
+        Release(Linka[raketomet]);
+        Print("Raketomet %d byl uvolněn\n", raketomet + 1);
+        dobaVSystemu(Time - tvstup);
 
         if (cekani.Length() > 0)
         {
@@ -56,7 +81,7 @@ class Generator: public Event
     {
         (new Palba)->Activate();
         Activate(Time + Exponential(11));
-        std::cout << "Požadavek palby byl vygenerován!" << std::endl;
+        Print("Požadavek palby byl vygenerován\n");
     }
 };
 
@@ -69,8 +94,7 @@ int main()
     (new Generator)->Activate();
     Run();
 
-    std::cout << "Bez čekání: " << bezCekani << std::endl;
-    //std::cout << "S čekáním: " << sCekanim << std::endl;
+    Print("Bez čekání: %d\n",bezCekani);
     Print("S čekáním: %d\n", sCekanim);
 
     //dobaObsluhy.Output();
