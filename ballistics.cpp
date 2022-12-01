@@ -1,20 +1,87 @@
+/**
+ * IMS ballistics in the military
+ * 
+ * @file ballistics.cpp
+ * @brief TODO
+ * @date 1.12.2022
+ * 
+ * @author Martin Pech
+ * @author David Konečný
+ */
+
 #include <iostream>
 #include <simlib.h>
 
 #define NUM_OF_ROCKET_LAUNCHERS 2
+#define NUM_OF_SOLDIERS 6
 
-Facility Linka[NUM_OF_ROCKET_LAUNCHERS];
-Facility LinkaVojaku("Obslužná linka vojáků");
+Facility LinkaRaketometu[NUM_OF_ROCKET_LAUNCHERS];
+Facility Vojaci[NUM_OF_SOLDIERS];
+
 Stat dobaObsluhy("Doba obsluhy na lince");
 Histogram dobaVSystemu("Celkova doba v systemu", 0, 40, 20);
 Queue cekani;
 
-// Vojáci by po nějaké době mohli odcházet a jejich počet by se postupně snižoval 
-
 int bezCekani = 0;
 int sCekanim = 0;
 
-class Palba: public Process
+class Porucha: public Process
+{
+    public:
+        Porucha(int r, int j): Process()
+        {
+            raketomet = r;
+            jednotka = j;
+        };
+
+    void Behavior()
+    {
+        double presun = Normal(44 * 60, 8 * 60);
+        Wait(presun);
+        Print("Jednotka se vrací do tábora z důvodu poruchy raketometu\n");
+
+        // Zabrat dalšího vojáka
+        double oprava = Uniform(30 * 60, 60 * 60);
+        Wait(oprava);
+        Print("Probíhá oprava\n");
+
+        Release(LinkaRaketometu[raketomet]);
+        Print("Raketomet %d byl uvolněn\n", raketomet + 1);
+        Release(Vojaci[jednotka]);
+        Print("Jednotka %d byla uvolněna\n", jednotka + 1);
+    }
+
+    int raketomet;
+    int jednotka;
+};
+
+class Dezerce: public Process
+{
+    void Behavior()
+    {
+        int jednotka = -1;
+
+        if (Random() >= 0.95)
+        {
+            for (int i = 0; i < NUM_OF_SOLDIERS; i++)
+            {
+                if (!Vojaci[i].Busy())
+                {
+                    jednotka = i;
+                    break;
+                }
+            }
+
+            if (jednotka != -1)
+            {
+                Seize(Vojaci[jednotka]);
+                Print("Jednotka %d dezertovala\n", jednotka + 1);
+            }
+        }
+    }
+};
+
+class Main: public Process
 {
     void Behavior()
     {
@@ -25,20 +92,31 @@ class Palba: public Process
         opak:
 
         int raketomet = -1;
+        int jednotka = -1;
 
         // Kontrola, zda jsou raketomety volné
         for (int i = 0; i < NUM_OF_ROCKET_LAUNCHERS; i++)
         {
-            if (!Linka[i].Busy())
+            if (!LinkaRaketometu[i].Busy())
             {
                 raketomet = i;
                 bezCekani++;
                 break;
             }
         }
+
+        // Kontrola, zda jsou vojáci k dispozici
+        for (int i = 0; i < NUM_OF_SOLDIERS; i++)
+        {
+            if (!Vojaci[i].Busy())
+            {
+                jednotka = i;
+                break;
+            }
+        }
         
         // Pokud nebyl žádný raketomet volný, požadavek se vloží do fronty
-        if (raketomet == -1)
+        if (raketomet == -1 || jednotka == -1)
         {
             sCekanim++;
             cekani.Insert(this);
@@ -48,24 +126,44 @@ class Palba: public Process
         }
         else
         {
-            Seize(Linka[raketomet]);
+            Seize(LinkaRaketometu[raketomet]);
             Print("Raketomet %d byl zabrán\n", raketomet + 1);
+            Seize(Vojaci[jednotka]);
+            Print("Jednotka %d byla zaúkolována\n", jednotka + 1);
         }
+
+        // Přesun na bojiště
+        Wait(Normal(44 * 60, 8 * 60));
+        Print("Raketomet %d a jednotka %d vojáků se přesunuli na bojiště\n", raketomet + 1, jednotka + 1);
         
-        // Nabíjení
-        nabijeni = Exponential(10);
-        Wait(nabijeni);
-        dobaObsluhy(nabijeni);
-        Print("Raketomet %d byl nabit\n", raketomet + 1);
+        // Porucha
+        if (Random() <= 0.1)
+        {
+            (new Porucha(raketomet, jednotka))->Activate();
+        }
+        else
+        {
+            // Nabíjení
+            nabijeni = Uniform(12, 15);
+            Wait(nabijeni);
+            dobaObsluhy(nabijeni);
+            Print("Raketomet %d byl nabit\n", raketomet + 1);
 
-        // Palba
-        palba = Exponential(10);
-        Wait(palba);
-        Print("Raketomet %d vypálil\n", raketomet + 1);
+            // Palba
+            palba = 1.0;
+            Wait(palba);
+            Print("Raketomet %d vypálil\n", raketomet + 1);
 
-        // Tady bude chování v rámci zabrání linky
-        Release(Linka[raketomet]);
-        Print("Raketomet %d byl uvolněn\n", raketomet + 1);
+            // Návrat zpět do tábora
+            double presun_zpet = Normal(44 * 60, 8 * 60);
+            Wait(presun_zpet);
+            Print("Raketomet a vojáci se přesunuli zpět do tábora\n");
+            Release(Vojaci[jednotka]);
+            Print("Jednotka %d byla uvolněna\n", jednotka + 1);
+            Release(LinkaRaketometu[raketomet]);
+            Print("Raketomet %d byl uvolněn\n", raketomet + 1);
+        }
+
         dobaVSystemu(Time - tvstup);
 
         if (cekani.Length() > 0)
@@ -79,19 +177,18 @@ class Generator: public Event
 {
     void Behavior()
     {
-        (new Palba)->Activate();
-        Activate(Time + Exponential(11));
+        (new Main)->Activate();
+        (new Dezerce)->Activate();
+        Activate(Time + Exponential(500)); // 120
         Print("Požadavek palby byl vygenerován\n");
     }
 };
 
 int main()
 {
-    std::cout << "Ahoj" << std::endl;
-    std::cout << "test" << std::endl;
-
-    Init(0, 100);
+    Init(0, 12000);
     (new Generator)->Activate();
+    
     Run();
 
     Print("Bez čekání: %d\n",bezCekani);
