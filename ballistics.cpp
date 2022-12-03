@@ -1,29 +1,35 @@
 /**
- * IMS ballistics in the military
+ * IMS balistika ve vojenství
  * 
  * @file ballistics.cpp
- * @brief TODO
- * @date 1.12.2022
+ * @brief Hlavní soubor, který obsahuje implementaci simulace
+ * @date 3.12.2022
  * 
- * @author Martin Pech
- * @author David Konečný
+ * @author David Konečný (xkonec83)
+ * @author Martin Pech (xpechm00)
  */
 
-#include <iostream>
 #include <simlib.h>
+#include <cmath>
 
-#define NUM_OF_ROCKET_LAUNCHERS 2
-#define NUM_OF_SOLDIERS 6
+#include "arg_parse.hpp"
 
-Facility LinkaRaketometu[NUM_OF_ROCKET_LAUNCHERS];
-Facility Vojaci[NUM_OF_SOLDIERS];
+#define POCET_RAKETOMETU 2
+#define POCET_VOJAKU 3
+
+Facility LinkaRaketometu[POCET_RAKETOMETU];
+Facility Vojaci[POCET_VOJAKU];
 
 Stat dobaObsluhy("Doba obsluhy na lince");
 Histogram dobaVSystemu("Celkova doba v systemu", 0, 40, 20);
 Queue cekani;
 
+int pozadavky = 0;
 int bezCekani = 0;
 int sCekanim = 0;
+int obslouzeno = 0;
+int pocet_dezertovanych = 0;
+int pocet_poruch = 0;
 
 class Porucha: public Process
 {
@@ -36,19 +42,16 @@ class Porucha: public Process
 
     void Behavior()
     {
-        double presun = Normal(44 * 60, 8 * 60);
+        // Přesun zpět do tábora
+        double presun = Normal(48, 8);
         Wait(presun);
-        Print("Jednotka se vrací do tábora z důvodu poruchy raketometu\n");
+        Print("[%f]: Jednotka %d se vrací do tábora z důvodu poruchy raketometu %d\n", Time, jednotka + 1, raketomet + 1);
+        pocet_poruch++;
 
-        // Zabrat dalšího vojáka
-        double oprava = Uniform(30 * 60, 60 * 60);
+        // Oprava
+        double oprava = Uniform(30, 60);
         Wait(oprava);
-        Print("Probíhá oprava\n");
-
-        Release(LinkaRaketometu[raketomet]);
-        Print("Raketomet %d byl uvolněn\n", raketomet + 1);
-        Release(Vojaci[jednotka]);
-        Print("Jednotka %d byla uvolněna\n", jednotka + 1);
+        Print("[%f]: Probíhá oprava\n", Time);
     }
 
     int raketomet;
@@ -61,9 +64,9 @@ class Dezerce: public Process
     {
         int jednotka = -1;
 
-        if (Random() >= 0.95)
+        if (Random() >= (1 - pow(dezerce / 100, 5)))
         {
-            for (int i = 0; i < NUM_OF_SOLDIERS; i++)
+            for (int i = 0; i < POCET_VOJAKU; i++)
             {
                 if (!Vojaci[i].Busy())
                 {
@@ -72,20 +75,21 @@ class Dezerce: public Process
                 }
             }
 
+            // Pokud je v táboře nějaká jednotka, tak dezertuje
             if (jednotka != -1)
             {
-                Seize(Vojaci[jednotka]);
-                Print("Jednotka %d dezertovala\n", jednotka + 1);
+                Seize(Vojaci[jednotka], 1);
+                Print("[%f]: Jednotka %d dezertovala\n", Time, jednotka + 1);
+                pocet_dezertovanych++;
             }
         }
     }
 };
 
-class Main: public Process
+class Palba: public Process
 {
     void Behavior()
     {
-        double tvstup = Time;
         double nabijeni;
         double palba;
 
@@ -95,18 +99,17 @@ class Main: public Process
         int jednotka = -1;
 
         // Kontrola, zda jsou raketomety volné
-        for (int i = 0; i < NUM_OF_ROCKET_LAUNCHERS; i++)
+        for (int i = 0; i < POCET_RAKETOMETU; i++)
         {
             if (!LinkaRaketometu[i].Busy())
             {
                 raketomet = i;
-                bezCekani++;
                 break;
             }
         }
 
         // Kontrola, zda jsou vojáci k dispozici
-        for (int i = 0; i < NUM_OF_SOLDIERS; i++)
+        for (int i = 0; i < POCET_VOJAKU; i++)
         {
             if (!Vojaci[i].Busy())
             {
@@ -115,56 +118,65 @@ class Main: public Process
             }
         }
         
-        // Pokud nebyl žádný raketomet volný, požadavek se vloží do fronty
+        // Pokud nebyl žádný raketomet volný nebo nebyla volná jednotka vojáků, je požadavek vložen do fronty
         if (raketomet == -1 || jednotka == -1)
         {
             sCekanim++;
             cekani.Insert(this);
             Passivate();
-            Print("Požadavek byl zařazen do fronty\n");
+            Print("[%f]: Požadavek byl zařazen do fronty\n", Time);
             goto opak;
         }
         else
         {
+            bezCekani++;
+            // Uvolnění jednotky a raketometu
             Seize(LinkaRaketometu[raketomet]);
-            Print("Raketomet %d byl zabrán\n", raketomet + 1);
+            Print("[%f]: Raketomet %d byl zabrán\n", Time, raketomet + 1);
             Seize(Vojaci[jednotka]);
-            Print("Jednotka %d byla zaúkolována\n", jednotka + 1);
+            Print("[%f]: Jednotka %d byla zaúkolována\n", Time, jednotka + 1);
         }
 
         // Přesun na bojiště
-        Wait(Normal(44 * 60, 8 * 60));
-        Print("Raketomet %d a jednotka %d vojáků se přesunuli na bojiště\n", raketomet + 1, jednotka + 1);
+        Wait(Normal(48, 8));
+        Print("[%f]: Raketomet %d a jednotka %d se přesunuli na bojiště\n", Time, raketomet + 1, jednotka + 1);
         
         // Porucha
-        if (Random() <= 0.1)
+        if (Random() <= (poruchovost / 100.0))
         {
             (new Porucha(raketomet, jednotka))->Activate();
+
+            // Uvolnění jednotky a raketometu
+            Release(LinkaRaketometu[raketomet]);
+            Print("[%f]: Raketomet %d byl opraven a uvolněn\n", Time, raketomet + 1);
+            Release(Vojaci[jednotka]);
+            Print("[%f]: Jednotka %d byla uvolněna\n", Time,  jednotka + 1);
         }
         else
         {
             // Nabíjení
-            nabijeni = Uniform(12, 15);
+            nabijeni = Uniform((12.0 / 60.0), (15.0 / 60.0));
             Wait(nabijeni);
             dobaObsluhy(nabijeni);
-            Print("Raketomet %d byl nabit\n", raketomet + 1);
+            Print("[%f]: Raketomet %d byl nabit\n", Time, raketomet + 1);
 
             // Palba
-            palba = 1.0;
+            palba = 1.0 / 60.0;
             Wait(palba);
-            Print("Raketomet %d vypálil\n", raketomet + 1);
+            Print("[%f]: Raketomet %d vypálil\n", Time, raketomet + 1);
 
             // Návrat zpět do tábora
-            double presun_zpet = Normal(44 * 60, 8 * 60);
+            double presun_zpet = Normal(48, 8);
             Wait(presun_zpet);
-            Print("Raketomet a vojáci se přesunuli zpět do tábora\n");
-            Release(Vojaci[jednotka]);
-            Print("Jednotka %d byla uvolněna\n", jednotka + 1);
-            Release(LinkaRaketometu[raketomet]);
-            Print("Raketomet %d byl uvolněn\n", raketomet + 1);
-        }
+            Print("[%f]: Raketomet %d a jednotka %d se přesunuli zpět do tábora\n", raketomet + 1, jednotka + 1, Time);
 
-        dobaVSystemu(Time - tvstup);
+            // Uvolnění jednotky a raketometu
+            Release(Vojaci[jednotka]);
+            Print("[%f]: Jednotka %d byla uvolněna\n", Time, jednotka + 1);
+            Release(LinkaRaketometu[raketomet]);
+            Print("[%f]: Raketomet %d byl uvolněn\n", Time, raketomet + 1);
+            obslouzeno++;   
+        }
 
         if (cekani.Length() > 0)
         {
@@ -177,26 +189,33 @@ class Generator: public Event
 {
     void Behavior()
     {
-        (new Main)->Activate();
         (new Dezerce)->Activate();
-        Activate(Time + Exponential(500)); // 120
-        Print("Požadavek palby byl vygenerován\n");
+        (new Palba)->Activate();
+
+        Activate(Time + Exponential(intenzita_pozadavku));
+        Print("[%f]: Požadavek palby byl vygenerován\n", Time);
+        pozadavky++;
     }
 };
 
-int main()
+int main(int argc, char *argv[])
 {
-    Init(0, 12000);
+    arg_parse(argc, argv);
+
+    Init(0, cas_do);
     (new Generator)->Activate();
     
     Run();
 
-    Print("Bez čekání: %d\n",bezCekani);
+    Print("====================================\n");
+    Print("Požadavky celkem: %d\n", pozadavky);
+    Print("Bez čekání: %d\n",pozadavky - sCekanim);
     Print("S čekáním: %d\n", sCekanim);
-
-    //dobaObsluhy.Output();
-    //Linka.Output();
-    //dobaVSystemu.Output();
+    Print("Počet jednotek, co dezertovaly: %d\n", pocet_dezertovanych);
+    Print("Počet poruch: %d\n", pocet_poruch);
+    Print("------------------------------------\n");
+    Print("Úspěšně dokončeno: %d\n", obslouzeno);
+    Print("Nevyřízené požadavky: %d\n", pozadavky - obslouzeno);
 
     return 0;
 }
