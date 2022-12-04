@@ -3,7 +3,7 @@
  * 
  * @file arg_parse.cpp
  * @brief Zpracování argumentů
- * @date 3.12.2022
+ * @date 4.12.2022
  * 
  * @author David Konečný (xkonec83)
  * @author Martin Pech (xpechm00)

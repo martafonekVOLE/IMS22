@@ -3,7 +3,7 @@
  * 
  * @file ballistics.cpp
  * @brief Hlavní soubor, který obsahuje implementaci simulace
- * @date 3.12.2022
+ * @date 4.12.2022
  * 
  * @author David Konečný (xkonec83)
  * @author Martin Pech (xpechm00)
@@ -161,7 +161,7 @@ class Palba: public Process
             Print("[%f]: Raketomet %d byl nabit\n", Time, raketomet + 1);
 
             // Palba
-            palba = 1.0 / 60.0;
+            palba = 0.5; // 0,5 min -> 30s
             Wait(palba);
             Print("[%f]: Raketomet %d vypálil\n", Time, raketomet + 1);
 

@@ -2,7 +2,7 @@
 #
 # Brief: Makefile
 # Author: David Konečný (xkonec83)
-# Date: 3.12.2022
+# Date: 4.12.2022
 
 CC = g++
 CFLAGS = -g -O2

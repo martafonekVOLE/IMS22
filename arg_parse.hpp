@@ -3,11 +3,14 @@
  * 
  * @file arg_parse.hpp
  * @brief Zpracování argumentů
- * @date 3.12.2022
+ * @date 4.12.2022
  * 
  * @author David Konečný (xkonec83)
  * @author Martin Pech (xpechm00)
  */
+
+#ifndef	_ARG_PARSE_H
+#define	_ARG_PARSE_H
 
 /**
  * Zpracuje argumenty a uloží je do příslušných globálních proměnných
@@ -28,3 +31,5 @@ extern double intenzita_pozadavku;
 
 /** Globální proměnná poruchovost houfnice */
 extern double poruchovost;
+
+#endif
